@@ -67,6 +67,11 @@ class StringBundle:
             for tag in tags:
                 last_path = result_paths[-1]
                 result_paths.append(last_path + "-" + tag)
+                result_paths[-1] = (
+                    __dirpath__
+                    + result_paths[-1].replace(":/strings", "/strings")
+                    + ".properties"
+                )
 
         return result_paths
 

@@ -157,9 +157,9 @@ class MainWindow(QMainWindow):
         default_predefined_class_file=None,
         default_save_dir=None,
         det_model_dir=None,
-        det_model_name="PP-OCRv5_mobile_det",
+        det_model_name="PP-OCRv4_server_det",
         rec_model_dir=None,
-        rec_model_name="PP-OCRv5_mobile_rec",
+        rec_model_name="PP-OCRv4_server_rec",
         cls_model_dir=None,
         label_font_path=None,
         selected_shape_color=(255, 255, 0),
@@ -230,20 +230,28 @@ class MainWindow(QMainWindow):
             model_dir=self.det_model_dir,
             device=self.gpu,
         )
-        self.table_ocr = PPStructureV3(
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            use_seal_recognition=False,
-            use_table_recognition=True,
-            use_formula_recognition=False,
-            use_chart_recognition=False,
-            use_region_detection=False,
-            device=self.gpu,
-        )
+        self.table_ocr = None
+        try:
+            self.table_ocr = PPStructureV3(
+                use_doc_orientation_classify=False,
+                use_doc_unwarping=False,
+                use_seal_recognition=False,
+                use_table_recognition=True,
+                use_formula_recognition=False,
+                use_chart_recognition=False,
+                use_region_detection=False,
+                device=self.gpu,
+            )
+        except Exception:
+            # Keep startup usable even when optional PP-Structure dependencies are missing.
+            logger.exception(
+                "PPStructureV3 initialization failed. Table recognition will be disabled."
+            )
 
         if os.path.exists("./data/paddle.png"):
             self.ocr.predict("./data/paddle.png")
-            self.table_ocr.predict("./data/paddle.png")
+            if self.table_ocr is not None:
+                self.table_ocr.predict("./data/paddle.png")
 
         # For loading all image under a directory
         self.mImgList = []
@@ -3236,6 +3244,14 @@ class MainWindow(QMainWindow):
         """
         Table Recognition
         """
+        if self.table_ocr is None:
+            msg = (
+                "Table OCR is unavailable because PP-Structure dependencies are missing.\n"
+                "Install with: pip install \"paddlex[ocr]==<your-paddlex-version>\""
+            )
+            QMessageBox.information(self, "Information", msg)
+            return
+
         from tablepyxl import tablepyxl
 
         import time
@@ -3578,16 +3594,22 @@ class MainWindow(QMainWindow):
             if choose_lang in ["ch", "en"]:
                 if hasattr(self, "table_ocr"):
                     del self.table_ocr
-                self.table_ocr = PPStructureV3(
-                    use_doc_orientation_classify=False,
-                    use_doc_unwarping=False,
-                    use_seal_recognition=False,
-                    use_table_recognition=True,
-                    use_formula_recognition=False,
-                    use_chart_recognition=False,
-                    use_region_detection=False,
-                    device=self.gpu,
-                )
+                self.table_ocr = None
+                try:
+                    self.table_ocr = PPStructureV3(
+                        use_doc_orientation_classify=False,
+                        use_doc_unwarping=False,
+                        use_seal_recognition=False,
+                        use_table_recognition=True,
+                        use_formula_recognition=False,
+                        use_chart_recognition=False,
+                        use_region_detection=False,
+                        device=self.gpu,
+                    )
+                except Exception:
+                    logger.exception(
+                        "PPStructureV3 reinitialization failed. Table recognition disabled."
+                    )
         else:
             logger.error("Invalid language selection")
         self.dialog.close()
@@ -4015,11 +4037,11 @@ def get_main_app(argv=[]):
     )
     arg_parser.add_argument("--det_model_dir", type=str, default=None, nargs="?")
     arg_parser.add_argument(
-        "--det_model_name", type=str, default="PP-OCRv5_mobile_det", nargs="?"
+        "--det_model_name", type=str, default="PP-OCRv4_server_det", nargs="?"
     )
     arg_parser.add_argument("--rec_model_dir", type=str, default=None, nargs="?")
     arg_parser.add_argument(
-        "--rec_model_name", type=str, default="PP-OCRv5_mobile_rec", nargs="?"
+        "--rec_model_name", type=str, default="PP-OCRv4_server_rec", nargs="?"
     )
     arg_parser.add_argument("--rec_char_dict_path", type=str, default=None, nargs="?")
     arg_parser.add_argument("--cls_model_dir", type=str, default=None, nargs="?")
