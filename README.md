@@ -68,6 +68,15 @@ python3 -m pip install paddlepaddle -i https://www.paddlepaddle.org.cn/packages/
 
 For more software version requirements, please refer to the instructions in [Installation Document](https://www.paddlepaddle.org.cn/install/quick) for operation.
 
+> Important: install and run with the same Python interpreter/environment. If you use a local `venv`, always use `./venv/bin/python` (or activate the `venv`) for both dependency installation and startup.
+>
+> Example (local `venv`):
+> ```bash
+> ./venv/bin/python -m pip install -e .
+> ./venv/bin/python -m pip install paddlepaddle -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
+> ./venv/bin/python PPOCRLabel.py
+> ```
+
 ### 1.2 Install and Run PPOCRLabel
 
 PPOCRLabel can be started in two ways: whl package and Python script. The whl package form is more convenient to start, and the python script to start is convenient for secondary development.
