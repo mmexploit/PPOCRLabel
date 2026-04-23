@@ -15,6 +15,7 @@
 # pyrcc5 -o libs/resources.py resources.qrc
 import argparse
 import ast
+import csv
 import codecs
 import json
 import os
@@ -261,6 +262,9 @@ class MainWindow(QMainWindow):
         self.lastOpenDir = None
         self.result_dic = []
         self.result_dic_locked = []
+        self._line_text_csv_cache_path = None
+        self._line_text_csv_cache_mtime = None
+        self._line_text_csv_mapping = None
         self.changeFileFolder = False
         self.haveAutoReced = False
         self.labelFile = None
@@ -2155,6 +2159,7 @@ class MainWindow(QMainWindow):
 
             if self.autoReRecognitionOption.isChecked():
                 self.reRecognition()
+            self._apply_line_text_csv_autofill()
         else:
             # self.canvas.undoLastLine()
             self.canvas.resetAllLines()
@@ -2358,6 +2363,8 @@ class MainWindow(QMainWindow):
             self.showBoundingBoxFromPPlabel(filePath)
 
             self.setWindowTitle(__appname__ + " " + filePath)
+
+            self._apply_line_text_csv_autofill()
 
             # Default : select last item if there is at least one item
             if self.labelList.count():
@@ -3076,6 +3083,89 @@ class MainWindow(QMainWindow):
         if len(file_path_split) == 1:
             return filePath
         return file_path_split[0] + "/" + file_path_split[1]
+
+    def _get_line_text_csv_mapping(self):
+        """Load image_filename -> line_text from CSV path in PPOCRLABEL_LINE_TEXT_CSV."""
+        path = os.environ.get("PPOCRLABEL_LINE_TEXT_CSV")
+        if not path:
+            return None
+        path = os.path.expanduser(path)
+        if not os.path.isfile(path):
+            logger.warning(
+                "PPOCRLABEL_LINE_TEXT_CSV is set but file not found: %s", path
+            )
+            return None
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            mtime = None
+        if (
+            self._line_text_csv_mapping is not None
+            and self._line_text_csv_cache_path == path
+            and self._line_text_csv_cache_mtime == mtime
+        ):
+            return self._line_text_csv_mapping
+
+        mapping = {}
+        with open(path, newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            if not reader.fieldnames:
+                logger.warning("CSV has no header row: %s", path)
+                self._line_text_csv_mapping = {}
+                self._line_text_csv_cache_path = path
+                self._line_text_csv_cache_mtime = mtime
+                return self._line_text_csv_mapping
+
+            lower_fields = {n.lower(): n for n in reader.fieldnames if n}
+            name_col = lower_fields.get("image_filename")
+            text_col = lower_fields.get("line_text")
+            if not name_col or not text_col:
+                logger.warning(
+                    "CSV must include image_filename and line_text columns (found %s)",
+                    reader.fieldnames,
+                )
+                self._line_text_csv_mapping = {}
+                self._line_text_csv_cache_path = path
+                self._line_text_csv_cache_mtime = mtime
+                return self._line_text_csv_mapping
+
+            for row in reader:
+                key = (row.get(name_col) or "").strip()
+                if not key:
+                    continue
+                mapping[key] = row.get(text_col) or ""
+
+        self._line_text_csv_mapping = mapping
+        self._line_text_csv_cache_path = path
+        self._line_text_csv_cache_mtime = mtime
+        logger.info(
+            "Loaded %d line_text rows from PPOCRLABEL_LINE_TEXT_CSV=%s",
+            len(mapping),
+            path,
+        )
+        return self._line_text_csv_mapping
+
+    def _apply_line_text_csv_autofill(self):
+        """Fill recognition labels from CSV (one line_text per image; all boxes get that text)."""
+        if not self.filePath:
+            return
+        lookup = self._get_line_text_csv_mapping()
+        if not lookup:
+            return
+        basename = os.path.basename(self.filePath)
+        line_text = lookup.get(basename)
+        if line_text is None:
+            return
+        changed = False
+        for shape in self.canvas.shapes:
+            if shape.line_color == DEFAULT_LOCK_COLOR:
+                continue
+            if shape.label != line_text:
+                shape.label = line_text
+                self.singleLabel(shape)
+                changed = True
+        if changed:
+            self.setDirty()
 
     def autoRecognitionNum(self, value):
         remain_num = len(self.mImgList) - self.currIndex
@@ -4078,8 +4168,34 @@ def get_main_app(argv=[]):
     return app, win
 
 
+def _load_project_dotenv():
+    """Set os.environ from .env next to this script (does not override existing vars)."""
+    path = os.path.join(__dir__, ".env")
+    if not os.path.isfile(path):
+        return
+    try:
+        with open(path, encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key = key.strip()
+                if not key or key in os.environ:
+                    continue
+                val = val.strip()
+                if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
+                    val = val[1:-1]
+                os.environ[key] = val
+    except OSError:
+        logger.warning("Could not read .env at %s", path)
+
+
 def main():
     """construct main app and run it"""
+    _load_project_dotenv()
     app, win = get_main_app(sys.argv)
 
     # Capture SIGINT (Ctrl+C) and trigger window close
